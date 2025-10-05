@@ -21,13 +21,13 @@ const clerkWebhooks = async (req, res) => {
         switch (type) {
             case "user.created": {
                 console.log('USER.CREATED EVENT TRIGGERED');
-                await handleUserCreation(data);
+                await User.create(data);
                 break;
             }
 
             case "session.created": {
                 console.log('SESSION.CREATED EVENT TRIGGERED');
-                await handleSessionCreated(data);
+                await User.create(data);
                 break;
             }
 
