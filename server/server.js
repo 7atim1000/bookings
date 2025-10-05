@@ -32,7 +32,7 @@ const app = express();
 // middleware 
 app.use(cors({
     credentials: true,
-    origin: ['http://localhost:5173']
+    origin: ['https://hotel-bookings-a7na.onrender.com']
  }))
 
 app.use(express.json());
