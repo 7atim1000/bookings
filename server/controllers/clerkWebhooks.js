@@ -1,17 +1,6 @@
-import User from '../models/User.js';
-import { Webhook } from 'svix';
-
+// Add Retry Logic in Your Webhook
 const clerkWebhooks = async (req, res) => {
-    console.log('Webhook received:', req.method, req.url);
-    
     try {
-        // Log headers for debugging
-        console.log('Headers received:', {
-            'svix-id': req.headers["svix-id"],
-            'svix-timestamp': req.headers["svix-timestamp"],
-            'svix-signature': req.headers["svix-signature"],
-        });
-
         const whook = new Webhook(process.env.CLERK_WEBHOOK_SECRET);
         const headers = {
             "svix-id": req.headers["svix-id"],
@@ -19,12 +8,10 @@ const clerkWebhooks = async (req, res) => {
             "svix-signature": req.headers["svix-signature"],
         };
 
-        // Verify webhook signature
         await whook.verify(JSON.stringify(req.body), headers);
 
         const { data, type } = req.body;
-        console.log('Webhook type:', type, 'User ID:', data?.id);
-
+        
         const userData = {
             _id: data.id,
             email: data.email_addresses[0]?.email_address,
@@ -32,24 +19,54 @@ const clerkWebhooks = async (req, res) => {
             image: data.image_url,
         };
 
-        console.log('User data to process:', userData);
+        console.log(`Processing webhook: ${type} for user: ${data.id}`);
 
         switch (type) {
             case "user.created": {
-                const newUser = await User.create(userData);
-                console.log('User created in DB:', newUser._id);
+                // Add retry logic for first-time user creation
+                let retries = 3;
+                let success = false;
+                
+                while (retries > 0 && !success) {
+                    try {
+                        // Check if user already exists (prevents duplicates)
+                        const existingUser = await User.findById(data.id);
+                        if (existingUser) {
+                            console.log('User already exists:', data.id);
+                            success = true;
+                            break;
+                        }
+                        
+                        await User.create(userData);
+                        console.log('User successfully created:', data.id);
+                        success = true;
+                    } catch (dbError) {
+                        console.log(`Retry ${4 - retries} failed:`, dbError.message);
+                        retries--;
+                        
+                        if (retries > 0) {
+                            // Wait 1 second before retry
+                            await new Promise(resolve => setTimeout(resolve, 1000));
+                        }
+                    }
+                }
+                
+                if (!success) {
+                    console.error('Failed to create user after all retries:', data.id);
+                    // You might want to queue this for later processing
+                }
                 break;
             }
 
             case "user.updated": {
-                const updatedUser = await User.findByIdAndUpdate(data.id, userData, { new: true });
-                console.log('User updated in DB:', updatedUser?._id);
+                await User.findByIdAndUpdate(data.id, userData, { new: true, upsert: false });
+                console.log('User updated:', data.id);
                 break;
             }
 
             case "user.deleted": {
-                const deletedUser = await User.findByIdAndDelete(data.id);
-                console.log('User deleted from DB:', deletedUser?._id);
+                await User.findByIdAndDelete(data.id);
+                console.log('User deleted:', data.id);
                 break;
             }
 
@@ -61,10 +78,7 @@ const clerkWebhooks = async (req, res) => {
         res.json({ success: true, message: 'Webhook received' });
 
     } catch (error) {
-        console.error('Webhook error:', error.message);
-        console.error('Full error:', error);
+        console.error('Webhook processing error:', error.message);
         res.status(400).json({ success: false, message: error.message });
     }
 };
-
-export default clerkWebhooks;
